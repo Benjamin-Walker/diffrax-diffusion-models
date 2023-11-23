@@ -1,30 +1,16 @@
 import jax.random as jrandom
 from diffrax import diffeqsolve, ODETerm, Tsit5, DirectAdjoint
+from datasets import diamond
 from jax import vmap
 import jax
 import jax.numpy as jnp
 import optax
 import matplotlib.pyplot as plt
 import equinox as eqx
-import tensorflow_datasets as tfds
-from UNet import UNet
-import tensorflow as tf
+from models.UNet import UNet
+from models.MLP import MLP
 
 key = jrandom.PRNGKey(5677)
-
-tf.config.experimental.set_visible_devices([], 'GPU')
-
-
-def get_datasets():
-    """Load MNIST train and test datasets into memory."""
-    ds_builder = tfds.builder('mnist')
-    ds_builder.download_and_prepare()
-    train_ds = tfds.as_numpy(ds_builder.as_dataset(split='train', batch_size=-1))
-    test_ds = tfds.as_numpy(ds_builder.as_dataset(split='test', batch_size=-1))
-    train_ds['image'] = jnp.float32(train_ds['image']) / 255.
-    test_ds['image'] = jnp.float32(test_ds['image']) / 255.
-    return train_ds, test_ds
-
 
 t0, t1 = 0., 10.
 
@@ -96,47 +82,51 @@ def make_step(model, opt_state, data, step_key):
     return model, loss
 
 
-train_ds, test_ds = get_datasets()
-data_mean = jnp.mean(train_ds['image'])
-data_std = jnp.std(train_ds['image'])
-data_max = jnp.max(train_ds['image'])
-data_min = jnp.min(train_ds['image'])
-train_ds['image'] = (train_ds['image'] - data_mean) / data_std
 key, init_key = jrandom.split(key)
-
 drift = get_drift()
-learning_rate = 1e-4
+key, loader_key = jax.random.split(key)
+dataset = diamond(loader_key)
 
-model = UNet(
-    key=init_key,
-    data_shape=(1, 28, 28),
-    is_biggan=False,
-    dim_mults=[1, 2, 4],
-    hidden_size=64,
-    heads=4,
-    dim_head=32,
-    dropout_rate=0.,
-    num_res_blocks=2,
-    attn_resolutions=[16],
-    t1=t1,
-    langevin=False,
-)
+Use_UNet = False
+if Use_UNet:
+    model = UNet(
+        key=init_key,
+        data_shape=dataset.data_shape,
+        is_biggan=False,
+        dim_mults=[1, 2, 4],
+        hidden_size=64,
+        heads=4,
+        dim_head=32,
+        dropout_rate=0.,
+        num_res_blocks=2,
+        attn_resolutions=[16],
+        t1=t1,
+        langevin=False,
+    )
+else:
+    model = MLP(
+        key=init_key,
+        data_shape=dataset.data_shape,
+        width_size=64,
+        depth=2,
+        t1=t1,
+        langevin=False,
+    )
+
+
+learning_rate = 1e-4
 
 optim = optax.adam(learning_rate)
 opt_state = optim.init(eqx.filter(model, eqx.is_inexact_array))
-key, loader_key = jax.random.split(key)
-iter_data = dataloader((train_ds['image'].transpose(0, 3, 1, 2),
-                        jnp.expand_dims(train_ds['label'], 1)), 256,
-                       key=loader_key)
 
-epochs = 20
+epochs = 200
 steps_per_epoch = 1000
 
 for epoch in range(epochs):
     running_loss = 0
-    for step, (x, y) in zip(range(steps_per_epoch), iter_data):
+    for step, data in zip(range(steps_per_epoch), dataset.train_dataloader.loop(100)):
         key, step_key = jax.random.split(key)
-        model, loss = make_step(model, opt_state, x, step_key)
+        model, loss = make_step(model, opt_state, data, step_key)
         running_loss += loss.item()
 
     print(f"epoch={epoch}, loss={running_loss / steps_per_epoch}")
@@ -148,11 +138,10 @@ def vector_field(t, y, args):
 
 term = ODETerm(vector_field)
 solver = Tsit5()
-key, unif_key = jax.random.split(key)
-sol = diffeqsolve(term, solver, t0=t1, t1=t0, dt0=-0.1, y0=jrandom.normal(unif_key, (1, 28, 28)), adjoint=DirectAdjoint())
-sample = data_mean + data_std * sol.ys[0].squeeze()
-sample = jnp.clip(sample, data_min, data_max)
-plt.imshow(sample, cmap="Greys")
-plt.axis("off")
-plt.tight_layout()
-plt.savefig('my_sample.png')
+unif_key, key = jrandom.split(key)
+y0s = jrandom.normal(unif_key, (1000,) + dataset.data_shape)
+sol = jax.vmap(lambda y: diffeqsolve(term, solver, t0=t1, t1=t0, dt0=-0.1, y0=y, adjoint=DirectAdjoint()))(y0s)
+sample = dataset.mean + dataset.std * sol.ys[:, 0]
+sample = jnp.clip(sample, dataset.min, dataset.max)
+plt.scatter(sample[:, 0], sample[:, 1])
+plt.show()
