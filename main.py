@@ -1,5 +1,5 @@
 import jax.random as jrandom
-from diffrax import diffeqsolve, ODETerm, Tsit5, NoAdjoint
+from diffrax import diffeqsolve, ODETerm, Tsit5, DirectAdjoint
 from jax import vmap
 import jax
 import jax.numpy as jnp
@@ -7,7 +7,7 @@ import optax
 import matplotlib.pyplot as plt
 import equinox as eqx
 import tensorflow_datasets as tfds
-from UNet import Unet, LinearTimeSelfAttention
+from UNet import UNet
 import tensorflow as tf
 
 key = jrandom.PRNGKey(5677)
@@ -28,26 +28,26 @@ def get_datasets():
 
 t0, t1 = 0., 10.
 
+
 def batch_mul(a, b):
     return jax.vmap(lambda a, b: a * b)(a, b)
 
 
 def get_drift():
-
     def drift(t, y, args):
-        return -0.5*y
+        return -0.5 * y
 
     return drift
 
 
 def marginal_prob(x, t):
-    log_mean_coeff = -0.5*t
+    log_mean_coeff = -0.5 * t
     mean = jnp.exp(log_mean_coeff) * x
     std = jnp.sqrt(jnp.maximum(1 - jnp.exp(2. * log_mean_coeff), 1e-5))
     return mean, std
 
 
-batch_marginal_prob = vmap(marginal_prob, in_axes=(None, None, 0, 0), out_axes=0)
+batch_marginal_prob = vmap(marginal_prob, in_axes=(0, 0), out_axes=0)
 
 
 def dataloader(arrays, batch_size, *, key):
@@ -79,7 +79,7 @@ def loss_fn(model, data, key):
     std = jnp.expand_dims(std, 1)
     perturbed_data = mean + batch_mul(std, z)
     pred_z = jax.vmap(model)(t, perturbed_data)
-    losses = jnp.square(pred_z + batch_mul(z, 1/std))
+    losses = jnp.square(pred_z + batch_mul(z, 1 / std))
     weight = (1 - jnp.exp(-t))
     losses = weight * jnp.mean(losses.reshape((losses.shape[0], -1)), axis=-1)
     loss = jnp.mean(losses)
@@ -89,7 +89,6 @@ def loss_fn(model, data, key):
 
 @eqx.filter_jit
 def make_step(model, opt_state, data, step_key):
-
     loss, grads = loss_fn(model, data, step_key)
     updates, opt_state = optim.update(grads, opt_state)
     model = eqx.apply_updates(model, updates)
@@ -108,19 +107,27 @@ key, init_key = jrandom.split(key)
 drift = get_drift()
 learning_rate = 1e-4
 
-model = Unet(
-        key=init_key,
-        input_size=(1, 28, 28),
-        dim_mults=(1, 2, 4, ),
-        attention_cls=LinearTimeSelfAttention,
-        )
+model = UNet(
+    key=init_key,
+    data_shape=(1, 28, 28),
+    is_biggan=False,
+    dim_mults=[1, 2, 4],
+    hidden_size=64,
+    heads=4,
+    dim_head=32,
+    dropout_rate=0.,
+    num_res_blocks=2,
+    attn_resolutions=[16],
+    t1=t1,
+    langevin=False,
+)
 
 optim = optax.adam(learning_rate)
 opt_state = optim.init(eqx.filter(model, eqx.is_inexact_array))
 key, loader_key = jax.random.split(key)
 iter_data = dataloader((train_ds['image'].transpose(0, 3, 1, 2),
                         jnp.expand_dims(train_ds['label'], 1)), 256,
-                        key=loader_key)
+                       key=loader_key)
 
 epochs = 20
 steps_per_epoch = 1000
@@ -142,7 +149,7 @@ def vector_field(t, y, args):
 term = ODETerm(vector_field)
 solver = Tsit5()
 key, unif_key = jax.random.split(key)
-sol = diffeqsolve(term, solver, t0=t1, t1=t0, dt0=-0.1, y0=jrandom.normal(unif_key, (1, 28, 28)), adjoint=NoAdjoint())
+sol = diffeqsolve(term, solver, t0=t1, t1=t0, dt0=-0.1, y0=jrandom.normal(unif_key, (1, 28, 28)), adjoint=DirectAdjoint())
 sample = data_mean + data_std * sol.ys[0].squeeze()
 sample = jnp.clip(sample, data_min, data_max)
 plt.imshow(sample, cmap="Greys")
