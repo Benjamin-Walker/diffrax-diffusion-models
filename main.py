@@ -1,6 +1,6 @@
 import jax.random as jrandom
 from diffrax import diffeqsolve, ODETerm, Tsit5, DirectAdjoint
-from datasets import diamond
+from datasets import diamond, mnist
 from jax import vmap
 import jax
 import jax.numpy as jnp
@@ -12,7 +12,7 @@ from models.MLP import MLP
 
 key = jrandom.PRNGKey(5677)
 
-t0, t1 = 0., 10.
+t0, t1 = 0., 1.
 
 
 def batch_mul(a, b):
@@ -107,11 +107,15 @@ else:
     model = MLP(
         key=init_key,
         data_shape=dataset.data_shape,
-        width_size=64,
-        depth=2,
+        width_size=256,
+        depth=5,
         t1=t1,
         langevin=False,
     )
+
+
+def vector_field(t, y, args):
+    return drift(t, y + model(t, y), args)
 
 
 learning_rate = 1e-4
@@ -119,8 +123,8 @@ learning_rate = 1e-4
 optim = optax.adam(learning_rate)
 opt_state = optim.init(eqx.filter(model, eqx.is_inexact_array))
 
-epochs = 200
-steps_per_epoch = 1000
+epochs = 1000
+steps_per_epoch = 5000
 
 for epoch in range(epochs):
     running_loss = 0
@@ -131,17 +135,24 @@ for epoch in range(epochs):
 
     print(f"epoch={epoch}, loss={running_loss / steps_per_epoch}")
 
-
-def vector_field(t, y, args):
-    return drift(t, y + model(t, y), args)
-
-
-term = ODETerm(vector_field)
-solver = Tsit5()
-unif_key, key = jrandom.split(key)
-y0s = jrandom.normal(unif_key, (1000,) + dataset.data_shape)
-sol = jax.vmap(lambda y: diffeqsolve(term, solver, t0=t1, t1=t0, dt0=-0.1, y0=y, adjoint=DirectAdjoint()))(y0s)
-sample = dataset.mean + dataset.std * sol.ys[:, 0]
-sample = jnp.clip(sample, dataset.min, dataset.max)
-plt.scatter(sample[:, 0], sample[:, 1])
-plt.show()
+    if epoch % 10 == 0:
+        term = ODETerm(vector_field)
+        solver = Tsit5()
+        key, unif_key = jax.random.split(key)
+        plt.figure()
+        if Use_UNet:
+            sol = diffeqsolve(term, solver, t0=t1, t1=t0, dt0=-0.1, y0=jrandom.normal(unif_key, dataset.data_shape), adjoint=DirectAdjoint())
+            sample = dataset.mean + dataset.std * sol.ys[0].squeeze()
+            sample = jnp.clip(sample, dataset.min, dataset.max)
+            plt.imshow(sample, cmap="Greys")
+            plt.axis("off")
+            plt.tight_layout()
+        else:
+            unif_key, key = jrandom.split(key)
+            y0s = jrandom.normal(unif_key, (1000,) + dataset.data_shape)
+            sol = jax.vmap(lambda y: diffeqsolve(term, solver, t0=t1, t1=t0, dt0=-0.1, y0=y, adjoint=DirectAdjoint()))(y0s)
+            sample = dataset.mean + dataset.std * sol.ys[:, 0]
+            sample = jnp.clip(sample, dataset.min, dataset.max)
+            plt.scatter(sample[:, 0], sample[:, 1])
+        plt.savefig(f"Samples/Sample_Epoch_{epoch}.png")
+        plt.close()
