@@ -111,11 +111,6 @@ else:
         langevin=False,
     )
 
-
-def vector_field(t, y, args):
-    return drift(t, y + model(t, y), args)
-
-
 learning_rate = 1e-4
 
 optim = optax.adam(learning_rate)
@@ -133,7 +128,11 @@ for epoch in range(epochs):
 
     print(f"epoch={epoch}, loss={running_loss / steps_per_epoch}")
 
-    if epoch % 10 == 0:
+    if epoch % 100 == 0:
+
+        def vector_field(t, y, args):
+            return drift(t, y, args) - 0.5 * model(t, y)
+
         term = ODETerm(vector_field)
         solver = Tsit5()
         key, unif_key = jax.random.split(key)
