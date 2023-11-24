@@ -6,7 +6,7 @@ import jax.numpy as jnp
 import jax.random as jr
 import torch
 import torchvision
-from typing import Tuple
+from typing import Tuple, Union
 
 
 _data_dir = pathlib.Path(__file__).resolve().parent / ".." / "data"
@@ -85,8 +85,8 @@ class _InMemoryDataLoader(_AbstractDataLoader):
 
 @dataclasses.dataclass
 class Dataset:
-    train_dataloader: _TorchDataLoader
-    test_dataloader: _TorchDataLoader
+    train_dataloader: Union[_TorchDataLoader, _InMemoryDataLoader]
+    test_dataloader: Union[_TorchDataLoader, _InMemoryDataLoader]
     data_shape: Tuple[int]
     mean: jnp.ndarray
     std: jnp.ndarray

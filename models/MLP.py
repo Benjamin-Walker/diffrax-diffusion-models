@@ -6,8 +6,8 @@ import jax.numpy as jnp
 
 class MLP(eqx.Module):
     mlp: eqx.nn.MLP
-    data_shape: Tuple[int] = eqx.static_field()
-    t1: float = eqx.static_field()
+    data_shape: Tuple[int]
+    t1: float
 
     def __init__(self, data_shape, width_size, depth, t1, langevin, *, key):
         data_size = math.prod(data_shape)

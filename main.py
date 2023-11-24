@@ -10,10 +10,6 @@ import equinox as eqx
 from models.UNet import UNet
 from models.MLP import MLP
 
-key = jrandom.PRNGKey(5677)
-
-t0, t1 = 0., 1.
-
 
 def batch_mul(a, b):
     return jax.vmap(lambda a, b: a * b)(a, b)
@@ -82,6 +78,8 @@ def make_step(model, opt_state, data, step_key):
     return model, loss
 
 
+key = jrandom.PRNGKey(5677)
+t0, t1 = 0., 1.
 key, init_key = jrandom.split(key)
 drift = get_drift()
 key, loader_key = jax.random.split(key)
@@ -107,8 +105,8 @@ else:
     model = MLP(
         key=init_key,
         data_shape=dataset.data_shape,
-        width_size=256,
-        depth=5,
+        width_size=128,
+        depth=3,
         t1=t1,
         langevin=False,
     )
@@ -124,11 +122,11 @@ optim = optax.adam(learning_rate)
 opt_state = optim.init(eqx.filter(model, eqx.is_inexact_array))
 
 epochs = 1000
-steps_per_epoch = 5000
+steps_per_epoch = 100
 
 for epoch in range(epochs):
     running_loss = 0
-    for step, data in zip(range(steps_per_epoch), dataset.train_dataloader.loop(100)):
+    for step, data in zip(range(steps_per_epoch), dataset.train_dataloader.loop(128)):
         key, step_key = jax.random.split(key)
         model, loss = make_step(model, opt_state, data, step_key)
         running_loss += loss.item()

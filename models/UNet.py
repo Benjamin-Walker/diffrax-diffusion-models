@@ -229,7 +229,7 @@ class ResnetBlock(eqx.Module):
 
 
 class UNet(eqx.Module):
-    t1: float = eqx.static_field()
+    t1: float
     time_pos_emb: SinusoidalPosEmb
     mlp: eqx.nn.MLP
     first_conv: eqx.nn.Conv2d
