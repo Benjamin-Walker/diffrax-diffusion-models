@@ -15,15 +15,21 @@ def batch_mul(a, b):
     return jax.vmap(lambda a, b: a * b)(a, b)
 
 
+def int_beta(t):
+    return 0.1 * t + (19.9 / 2) * (t ** 2)
+
+
 def get_drift():
+
     def drift(t, y, args):
-        return -0.5 * y
+        _, beta = jax.jvp(int_beta, (t,), (jnp.ones_like(t),))
+        return -0.5 * beta * y
 
     return drift
 
 
 def marginal_prob(x, t):
-    log_mean_coeff = -0.5 * t
+    log_mean_coeff = -0.5 * int_beta(t)
     mean = jnp.exp(log_mean_coeff) * x
     std = jnp.sqrt(jnp.maximum(1 - jnp.exp(2. * log_mean_coeff), 1e-5))
     return mean, std
@@ -131,7 +137,8 @@ for epoch in range(epochs):
     if epoch % 100 == 0:
 
         def vector_field(t, y, args):
-            return drift(t, y, args) - 0.5 * model(t, y)
+            _, beta = jax.jvp(int_beta, (t,), (jnp.ones_like(t),))
+            return drift(t, y, args) - 0.5 * beta * model(t, y)
 
         term = ODETerm(vector_field)
         solver = Tsit5()
@@ -151,5 +158,5 @@ for epoch in range(epochs):
             sample = dataset.mean + dataset.std * sol.ys[:, 0]
             sample = jnp.clip(sample, dataset.min, dataset.max)
             plt.scatter(sample[:, 0], sample[:, 1])
-        plt.savefig(f"Samples/Sample_Epoch_{epoch}.png")
+        plt.savefig(f"Samples/Diamond_Epoch_{epoch}.png")
         plt.close()
