@@ -1,12 +1,12 @@
 import abc
 import dataclasses
 import pathlib
+from typing import Tuple, Union
 
 import jax.numpy as jnp
 import jax.random as jr
 import torch
 import torchvision
-from typing import Tuple, Union
 
 
 _data_dir = pathlib.Path(__file__).resolve().parent / ".." / "data"
