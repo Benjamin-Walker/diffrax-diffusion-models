@@ -1,14 +1,15 @@
-import jax.random as jrandom
-from diffrax import diffeqsolve, ODETerm, Tsit5, DirectAdjoint
-from datasets import diamond, mnist
-from jax import vmap
+import equinox as eqx
 import jax
 import jax.numpy as jnp
-import optax
+import jax.random as jrandom
 import matplotlib.pyplot as plt
-import equinox as eqx
-from models.UNet import UNet
+import optax
+from diffrax import diffeqsolve, DirectAdjoint, ODETerm, Tsit5
+from jax import vmap
+
+from datasets import diamond
 from models.MLP import MLP
+from models.UNet import UNet
 
 
 def batch_mul(a, b):
@@ -16,11 +17,10 @@ def batch_mul(a, b):
 
 
 def int_beta(t):
-    return 0.1 * t + (19.9 / 2) * (t ** 2)
+    return 0.1 * t + (19.9 / 2) * (t**2)
 
 
 def get_drift():
-
     def drift(t, y, args):
         _, beta = jax.jvp(int_beta, (t,), (jnp.ones_like(t),))
         return -0.5 * beta * y
@@ -31,7 +31,7 @@ def get_drift():
 def marginal_prob(x, t):
     log_mean_coeff = -0.5 * int_beta(t)
     mean = jnp.exp(log_mean_coeff) * x
-    std = jnp.sqrt(jnp.maximum(1 - jnp.exp(2. * log_mean_coeff), 1e-5))
+    std = jnp.sqrt(jnp.maximum(1 - jnp.exp(2.0 * log_mean_coeff), 1e-5))
     return mean, std
 
 
@@ -68,7 +68,7 @@ def loss_fn(model, data, key):
     perturbed_data = mean + batch_mul(std, z)
     pred_z = jax.vmap(model)(t, perturbed_data)
     losses = jnp.square(pred_z + batch_mul(z, 1 / std))
-    weight = (1 - jnp.exp(-t))
+    weight = 1 - jnp.exp(-t)
     losses = weight * jnp.mean(losses.reshape((losses.shape[0], -1)), axis=-1)
     loss = jnp.mean(losses)
 
@@ -85,7 +85,7 @@ def make_step(model, opt_state, data, step_key):
 
 
 key = jrandom.PRNGKey(5677)
-t0, t1 = 0., 1.
+t0, t1 = 0.0, 1.0
 key, init_key = jrandom.split(key)
 drift = get_drift()
 key, loader_key = jax.random.split(key)
@@ -101,7 +101,7 @@ if Use_UNet:
         hidden_size=64,
         heads=4,
         dim_head=32,
-        dropout_rate=0.,
+        dropout_rate=0.0,
         num_res_blocks=2,
         attn_resolutions=[16],
         t1=t1,
@@ -145,7 +145,15 @@ for epoch in range(epochs):
         key, unif_key = jax.random.split(key)
         plt.figure()
         if Use_UNet:
-            sol = diffeqsolve(term, solver, t0=t1, t1=t0, dt0=-0.1, y0=jrandom.normal(unif_key, dataset.data_shape), adjoint=DirectAdjoint())
+            sol = diffeqsolve(
+                term,
+                solver,
+                t0=t1,
+                t1=t0,
+                dt0=-0.1,
+                y0=jrandom.normal(unif_key, dataset.data_shape),
+                adjoint=DirectAdjoint(),
+            )
             sample = dataset.mean + dataset.std * sol.ys[0].squeeze()
             sample = jnp.clip(sample, dataset.min, dataset.max)
             plt.imshow(sample, cmap="Greys")
@@ -154,7 +162,11 @@ for epoch in range(epochs):
         else:
             unif_key, key = jrandom.split(key)
             y0s = jrandom.normal(unif_key, (1000,) + dataset.data_shape)
-            sol = jax.vmap(lambda y: diffeqsolve(term, solver, t0=t1, t1=t0, dt0=-0.1, y0=y, adjoint=DirectAdjoint()))(y0s)
+            sol = jax.vmap(
+                lambda y: diffeqsolve(
+                    term, solver, t0=t1, t1=t0, dt0=-0.1, y0=y, adjoint=DirectAdjoint()
+                )
+            )(y0s)
             sample = dataset.mean + dataset.std * sol.ys[:, 0]
             sample = jnp.clip(sample, dataset.min, dataset.max)
             plt.scatter(sample[:, 0], sample[:, 1])

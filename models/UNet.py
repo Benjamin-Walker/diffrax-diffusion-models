@@ -1,6 +1,6 @@
 import math
 from types import FunctionType
-from typing import Optional, Union, List, Tuple
+from typing import List, Optional, Tuple, Union
 
 import equinox as eqx
 import jax

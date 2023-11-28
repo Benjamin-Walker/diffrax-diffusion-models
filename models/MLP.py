@@ -1,6 +1,7 @@
-import equinox as eqx
-from typing import Tuple
 import math
+from typing import Tuple
+
+import equinox as eqx
 import jax.numpy as jnp
 
 
